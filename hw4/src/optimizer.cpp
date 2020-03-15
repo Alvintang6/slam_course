@@ -13,8 +13,7 @@
 void two_view_ba(Frame &frame_last, Frame &frame_curr, LoaclMap &map, std::vector<FMatch> &matches, int n_iter)
 {
     // TODO homework
-    // after you complete this funtion, remove the "return"
-    return;
+    
 
     const double fx = frame_last.K_(0, 0);
     const double fy = frame_last.K_(1, 1);
@@ -43,12 +42,23 @@ void two_view_ba(Frame &frame_last, Frame &frame_curr, LoaclMap &map, std::vecto
     // TODO homework
     // add frame pose Vertex to optimizer
     // example: 
-    // g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
-    // ...
+    //add last pose to vertex
+     g2o::VertexSE3Expmap * poselast = new g2o::VertexSE3Expmap();
+     poselast->setEstimate(Converter::toSE3Quat(last_Tcw));
+     poselast->setId(0);
+     poselast->setFixed(true);
+     optimizer.addVertex(poselast);
+    //add current pose to vertex
+
+     g2o::VertexSE3Expmap * posecurr = new g2o::VertexSE3Expmap();
+     posecurr->setEstimate(Converter::toSE3Quat(curr_Tcw));
+     posecurr->setId(1);
+     posecurr->setFixed(false);
+     optimizer.addVertex(posecurr);
+     
+
     // optimizer.addVertex(vSE3);
-    {
-       
-    }
+    
 
     const float thHuber2D = sqrt(5.99);
     const float thHuber3D = sqrt(7.815);
@@ -57,6 +67,7 @@ void two_view_ba(Frame &frame_last, Frame &frame_curr, LoaclMap &map, std::vecto
     int max_frame_id = std::max(frame_id_last, frame_id_curr) + 1;
 
     // Set MapPoint vertices
+    int map_index = 2;
     for(size_t i=0; i<matches.size(); i++)
     {
         if(matches[i].outlier)
@@ -77,9 +88,15 @@ void two_view_ba(Frame &frame_last, Frame &frame_curr, LoaclMap &map, std::vecto
         // g2o::VertexSBAPointXYZ * vPoint = new g2o::VertexSBAPointXYZ();
         // ...
         // optimizer.addVertex(vPoint);
-        {
+
         
-        }
+           g2o::VertexSBAPointXYZ * vPoint = new g2o::VertexSBAPointXYZ();
+           vPoint->setId(map_index);
+           poselast->setFixed(true);
+           vPoint->setEstimate(mpt);
+           vPoint->setMarginalized(true);  // seperately optimize mappoint and frame
+           optimizer.addVertex(vPoint);
+        
         
         // TODO homework
         // add edage to optimizer
@@ -87,9 +104,47 @@ void two_view_ba(Frame &frame_last, Frame &frame_curr, LoaclMap &map, std::vecto
         // g2o::EdgeSE3ProjectXYZ* e = new g2o::EdgeSE3ProjectXYZ();
         // ...
         // optimizer.addEdge(e);
-        {
+        
+            g2o::EdgeSE3ProjectXYZ* edge_last = new g2o::EdgeSE3ProjectXYZ();
+            edge_last->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(map_index)));
+            edge_last->setVertex(1,dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
+            edge_last->setMeasurement(Eigen::Vector2d(features_last[idx_last][0],features_last[idx_last][1]));     
+            edge_last->setInformation(Eigen::Matrix2d::Identity());
 
-        }
+            if(bRobust)
+            {
+                g2o::RobustKernelHuber* rk1 = new g2o::RobustKernelHuber;
+                edge_last->setRobustKernel(rk1);
+            rk1->setDelta(thHuber2D);
+            }
+
+            edge_last->fx = fx;
+            edge_last->fy = fy;
+            edge_last->cx = cx;
+            edge_last->cy = cy;
+
+            optimizer.addEdge(edge_last);
+        
+            g2o::EdgeSE3ProjectXYZ* edge_curr = new g2o::EdgeSE3ProjectXYZ();
+            edge_curr->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(map_index)));
+            edge_curr->setVertex(1,dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(1)));
+            edge_curr->setMeasurement(Eigen::Vector2d(features_curr[idx_curr][0],features_curr[idx_curr][1]));
+            edge_curr->setInformation(Eigen::Matrix2d::Identity());
+             
+             if(bRobust)
+            {
+            g2o::RobustKernelHuber* rk2 = new g2o::RobustKernelHuber;
+            edge_curr->setRobustKernel(rk2);
+            rk2->setDelta(thHuber2D);
+
+            }
+            edge_curr->fx = fx;
+            edge_curr->fy = fy;
+            edge_curr->cx = cx;
+            edge_curr->cy = cy;
+            optimizer.addEdge(edge_curr);
+            map_index++;
+
     }
 
     // Optimize!
@@ -99,20 +154,29 @@ void two_view_ba(Frame &frame_last, Frame &frame_curr, LoaclMap &map, std::vecto
     // TODO homework
     // Recover optimized data
     // Frame Pose
+
+
     {
-        frame_last.Twc_ = frame_last.Twc_;
-        frame_curr.Twc_ = frame_curr.Twc_;
+
+        frame_last.Twc_ = Eigen::Isometry3d(poselast->estimate()).matrix().inverse();
+        frame_curr.Twc_ = Eigen::Isometry3d(posecurr->estimate()).matrix().inverse();
+         
+
     }
     
     // Points
+    map_index =2;
     for(size_t i = 0; i < matches.size(); i++)
     {
         if(matches[i].outlier) { continue; }
         uint32_t idx_last = matches[i].second;
         int32_t idx_mpt = frame_last.mpt_track_[idx_last];
 
-        Eigen::Vector3d &mpt = map.mpts_[idx_mpt];
+         Eigen::Vector3d &mpt = map.mpts_[idx_mpt];
+         g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(map_index));
 
-        mpt = mpt;
+
+        mpt = Eigen::Vector3d(vPoint->estimate());;
+        map_index++;
     }
 }

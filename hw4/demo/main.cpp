@@ -106,6 +106,11 @@ void outlier_rejection(Frame &frame_last,Frame &frame_curr, LoaclMap &map, std::
     const double sigma = 1.0;
     const double thr = sigma * 4;
     std::list<double> rpj_err;
+    const float fx = frame_last.K_(0, 0);
+    const float fy = frame_last.K_(1, 1);
+    const float cx = frame_last.K_(0, 2);
+    const float cy = frame_last.K_(1, 2);
+
     for (size_t n = 0; n < matches.size(); n++)
     {
         uint32_t idx_curr = matches[n].first;
@@ -116,8 +121,29 @@ void outlier_rejection(Frame &frame_last,Frame &frame_curr, LoaclMap &map, std::
         Eigen::Vector3d &mpt = map.mpts_[mpt_idx];
 
         // TODO homework
-        // ....
-        // if (...)
+        //Eigen::Vector4d mpt_P(mpt(0),mpt(1),mpt(2),1);
+        
+        Eigen::Matrix3d Rtemp= frame_curr.Twc_.block(0,0,3,3).transpose()*frame_last.Twc_.block(0,0,3,3);
+        Eigen::Vector3d ttemp= frame_curr.Twc_.block(0,0,3,3).transpose()*(frame_last.Twc_.block(0,3,3,1)-frame_curr.Twc_.block(0,3,3,1));
+        const float X = Rtemp.row(0).dot(mpt)+ttemp(0); 
+        const float Y = Rtemp.row(1).dot(mpt)+ttemp(1); 
+        const float Z = Rtemp.row(2).dot(mpt)+ttemp(2);
+        //const double X = Point_curr(0);
+        //const double Y = Point_curr(1);
+        //const double Z = Point_curr(2);
+        float invz = 1.0/Z;
+        float u1 = fx*X*invz+cx;
+        float v1 = fy*Y*invz+cy;
+        float errX = u1 - frame_curr.fts_[idx_curr][0];
+        float errY = v1 - frame_curr.fts_[idx_curr][1];
+        if ((errX*errX+errY*errY)>4)
+        {
+            matches[n].outlier = true;
+            
+        }
+        std::cout<<matches[n].outlier<<std::endl;
+
+        // if ()
         // {
         //     matches[n].outlier = true;
         // }
@@ -328,7 +354,7 @@ int main()
 
         /* get matched features */
         frame_curr.mpt_track_ = std::vector<int32_t>(landmarks.size(), -1);    // mappoint idx//
-        std::vector<FMatch> matches = feature_match(frame_curr, frame_last, 0.0);
+        std::vector<FMatch> matches = feature_match(frame_curr, frame_last, 0.05);
         assert(!matches.empty());
 
         std::cout << "[" << std::setw(3) << frame_curr.idx_ << "] match features " << matches.size() << std::endl;

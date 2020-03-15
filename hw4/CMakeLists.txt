@@ -14,6 +14,7 @@ MESSAGE("PROJECT_SOURCE_DIR " ${PROJECT_SOURCE_DIR})
 
 
 find_package(OpenCV REQUIRED )
+
 #if(NOT OpenCV_FOUND)
   # find_package(OpenCV 2.4.9)
   # if(NOT OpenCV_FOUND)
